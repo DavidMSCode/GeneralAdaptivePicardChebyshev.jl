@@ -3,6 +3,9 @@ uuid = "a5e8618f-d066-46e3-9f1b-90828895dc21"
 authors = ["David Stanley"]
 version = "1.0.0-DEV"
 
+[deps]
+ClenshawCurtisQuadrature = "59744424-2764-45d9-a2de-33bc68f5e712"
+
 [compat]
 julia = "1.6.7"
 
