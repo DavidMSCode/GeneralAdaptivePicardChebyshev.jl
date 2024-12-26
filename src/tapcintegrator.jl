@@ -49,7 +49,8 @@ function step(y0, dy0, as, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2
 	if verbose #print segment information
 		println("Segment: ", iseg, " Time: ", t, " dt: ", dt)
 	end
-	#set the initial analytic guess function if provided. Otherwise use zero acceleration guess
+	#set the initial analytic guess function if provided. Otherwise use zero
+	#acceleration guess
 	if isnothing(analytic_guess)
 		initial_guess_function = zero_accel_guess
 	else
@@ -58,7 +59,8 @@ function step(y0, dy0, as, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2
 
 	#initialize the chebyshev nodes and solution vectors
 	Ms = 0:M
-	taus = -cos.(π * (Ms ./ M))#tau time [-1,1] nodes that chebyshev functions are valid with cosine spacing
+	#tau time [-1,1] nodes that chebyshev functions are valid with cosine spacing
+	taus = -cos.(π * (Ms ./ M))
 	new_a = as * 0
 	ys = as * 0
 	dys = as * 0
@@ -71,7 +73,8 @@ function step(y0, dy0, as, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2
 		w1 = (2 * t + dt) / 2#time average (value at tau=0) 
 		w2 = (dt) / 2#time scaling factor	(tf-t0)/2
 		times = w1 .+ w2 * taus#real times at chebyshev nodes
-		#if user specified analytic_guess use it for initial trajectory, otherwise use constant initial conditions
+		#if user specified analytic_guess use it for initial trajectory,
+		#otherwise use constant initial conditions
 		ys, dys = initial_guess_function(times, y0, dy0, params)
 
 		#begin picard iteration
@@ -82,20 +85,26 @@ function step(y0, dy0, as, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2
 
 			#calculate the new guess along the entire trajectory
 			new_a = stack([ode(i..., params) for i in zip(times, eachrow(ys), eachrow(dys))], dims = 1)
-			#calculate the least squares coefficients for the acceleration polynomial
+			#calculate the least squares coefficients for the acceleration
+			#polynomial
 			as = A * new_a
-			#calculate velocity coefficients (and multipley time scale to get units of real time)
+			#calculate velocity coefficients (and multipley time scale to get
+			#units of real time)
 			beta = w2 * P1 * as
 			beta[1, :] += dy0#add initial velcoity
 			new_dys = T1 * beta#calculate new velocity at the chebyshev nodes
-			#calculate the position coefficients (and multiply by time scale to get units of real time)
+			#calculate the position coefficients (and multiply by time scale to
+			#get units of real time)
 			alpha = w2 * P2 * beta
 			alpha[1, :] += y0#add initial position
 			new_ys = T2 * alpha#calculate the new positions at the chebyshev nodes
 
-			#estimate the convergence by checking if the last three coefficients of the acceleration polynomials are less than the iteration tolerance (scaled by the max acceleration over the trajectory)
+			#estimate the convergence by checking if the last three coefficients
+			#of the acceleration polynomials are less than the iteration
+			#tolerance (scaled by the max acceleration over the trajectory)
 
-			da_end = as[end, :] - old_as[end, :]#difference in last coefficients between iterations
+			#difference in last coefficients between iterations
+			da_end = as[end, :] - old_as[end, :] 
 			ierr = (maximum(abs.(da_end)) / maximum(abs.(new_a)))
 
 			#update the guess
