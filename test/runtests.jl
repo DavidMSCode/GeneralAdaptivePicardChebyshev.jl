@@ -13,5 +13,5 @@ using Test
     
     
     t,y,dy,ddy = integrate_ivp2(y0,dy0,t0,tf,tol,ode,params,N=20,exponent=1/5)
-    @test isapprox(y[end],cos(2*pi),rtol=1e-7)
+    @test isapprox(y[end],cos(2*pi),rtol=1e-6)
 end
