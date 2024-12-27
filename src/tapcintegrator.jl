@@ -83,7 +83,7 @@ function step(y0, dy0, ddy0, as, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, 
 		new_a[1, :] = ddy0 #initial acceleration (should not change in the iteration)
 		while ierr > itol && itr < maxIters
 			#calculate the new guess along the entire trajectory
-			new_a[2:end,:] = stack([ode(i..., params) for i in zip(times[2:end], eachrow(ys[2:end,:]), eachrow(dys[2:end,:]))], dims = 1)
+			new_a[2:end,:] = stack([ode(state..., params) for state in zip(times[2:end], eachrow(ys[2:end,:]), eachrow(dys[2:end,:]))], dims = 1)
 			#calculate the least squares coefficients for the acceleration
 			#polynomial
 			as = A * new_a
@@ -129,8 +129,12 @@ function step(y0, dy0, ddy0, as, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, 
 			istat = 1
 			#update the time by current dt
 			t += dt
-			if t >= tf
+			#check if we have reached the final time within one epsilon. This
+			#prevents up to two extra segments from being calculated
+			#unecessarily.
+			if nextfloat(t) >= tf
 				#set flag to 2 for reached final time
+				t = nextfloat(t)
 				istat = 2
 			end
 		elseif verbose
