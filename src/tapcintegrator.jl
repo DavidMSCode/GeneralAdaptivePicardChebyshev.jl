@@ -43,7 +43,7 @@ function initial_time_step(y0, dy0, t0, order, ode, params)
 end # function
 
 
-function step(y0, dy0, as, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2, tol, exponent, fac, iseg, ode, params, verbose, maxIters, itol, analytic_guess)
+function step(y0, dy0, ddy0, as, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2, tol, exponent, fac, iseg, ode, params, verbose, maxIters, itol, analytic_guess)
 	#set the initial analytic guess function if provided. Otherwise use zero
 	#acceleration guess
 	if isnothing(analytic_guess)
@@ -79,18 +79,19 @@ function step(y0, dy0, as, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2
 		ierr = 1
 		itr = 0
 		old_as = zeros(size(A)[1], size(y0)[1])
+		new_a = ys*0.0
+		new_a[1, :] = ddy0 #initial acceleration (should not change in the iteration)
 		while ierr > itol && itr < maxIters
-
 			#calculate the new guess along the entire trajectory
-			new_a = stack([ode(i..., params) for i in zip(times, eachrow(ys), eachrow(dys))], dims = 1)
+			new_a[2:end,:] = stack([ode(i..., params) for i in zip(times[2:end], eachrow(ys[2:end,:]), eachrow(dys[2:end,:]))], dims = 1)
 			#calculate the least squares coefficients for the acceleration
 			#polynomial
 			as = A * new_a
 			#calculate velocity coefficients (and multipley time scale to get
 			#units of real time)
 			beta = w2 * P1 * as
-			beta[1, :] += dy0#add initial velcoity
-			new_dys = T1 * beta#calculate new velocity at the chebyshev nodes
+			beta[1, :] += dy0 #add initial velocity
+			new_dys = T1 * beta #integrate new velocity at the chebyshev nodes (>1)
 			#calculate the position coefficients (and multiply by time scale to
 			#get units of real time)
 			alpha = w2 * P2 * beta
@@ -105,8 +106,10 @@ function step(y0, dy0, as, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2
 			da_end = as[:, :] - old_as[:, :] 
 			ierr = (maximum(abs.(da_end)) / maximum(abs.(new_a)))
 
-			#update the guess
-			ys, dys, old_as = new_ys, new_dys, as
+			#update the solution vectors for nodes > 1
+			ys, dys = new_ys, new_dys
+			#store old acceleration coefficients
+			old_as = as
 			itr += 1
 			if verbose
 				println("\t\tIteration: ", itr, " Convergence Error: ", ierr)
@@ -184,8 +187,9 @@ Integrates a system of ordinary differential equations (ODEs) using a Chebyshev 
 - `sol_acc::Matrix{Float64}`: Matrix of state second derivatives at each time point.
 """
 function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 32, verbose = false, dt = nothing, maxIters = 20, itol = 1e-19, exponent = nothing, analytic_guess = nothing)
-	#assume interpolating polynomial instead of least squares M=N
-	M = N
+	#Number of nodes to sample solution at. Since this is a 2nd order
+	#integrator, the acceleration polynomial is of order N-2 this means the 
+	M = N-2
 
 	#maximum timestep change factor
 	fac = 0.25
@@ -242,7 +246,7 @@ function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 32, verbose = fal
 		#update segment count
 		iseg += 1
 		#advance solution  by 1 segment
-		ys, dys, ddys, ts, dt, as, alphas, betas, istat = step(y0, dy0, as, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2, tol, exp, fac, iseg, ode, params, verbose, maxIters, itol, analytic_guess)
+		ys, dys, ddys, ts, dt, as, alphas, betas, istat = step(y0, dy0, ddy0, as, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2, tol, exp, fac, iseg, ode, params, verbose, maxIters, itol, analytic_guess)
 		t = ts[end]
 		if istat == 2
 			integrate_ivp2 = false
@@ -261,11 +265,11 @@ function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 32, verbose = fal
 		end
 
 		#store the solution
-		range = (iseg-1)*N+2:(iseg)*N+1
+		range = (iseg-1)*M+2:(iseg)*M+1
 		sol_pos[range, :] = ys[2:end, :]
 		sol_vel[range, :] = dys[2:end, :]
 		sol_acc[range, :] = ddys[2:end, :]
 		sol_time[range] = ts[2:end]
 	end #while
-	return sol_time[1:iseg*N+1], sol_pos[1:iseg*N+1, :], sol_vel[1:iseg*N+1, :], sol_acc[1:iseg*N+1, :]
+	return sol_time[1:iseg*M+1], sol_pos[1:iseg*M+1, :], sol_vel[1:iseg*M+1, :], sol_acc[1:iseg*M+1, :]
 end
