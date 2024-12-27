@@ -1,8 +1,8 @@
 module TAPC
 
-export integrate_ivp2
+export integrate_ivp2, clenshaw_curtis_nested_ivpd, interpolate, clenshaw_curtis_ivpi, clenshaw_curtis_ivpii
 
 include("tapcintegrator.jl")
-# Write your package code here.
+include("clenshawcurtisivp.jl")
 
 end

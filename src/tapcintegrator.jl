@@ -1,5 +1,3 @@
-using ClenshawCurtisQuadrature
-
 function zero_accel_guess(ts, y0, dy0, params)
 	t0 = ts[1]
 	dims = length(y0)
@@ -46,9 +44,6 @@ end # function
 
 
 function step(y0, dy0, as, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2, tol, exponent, fac, iseg, ode, params, verbose, maxIters, itol, analytic_guess)
-	if verbose #print segment information
-		println("Segment: ", iseg, " Time: ", t, " dt: ", dt)
-	end
 	#set the initial analytic guess function if provided. Otherwise use zero
 	#acceleration guess
 	if isnothing(analytic_guess)
@@ -69,6 +64,9 @@ function step(y0, dy0, as, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2
 	#Initialize the picard iteration loop
 	istat = 0
 	while istat == 0
+		if verbose #print segment information
+			println("Segment: ", iseg, " Time: ", t, " dt: ", dt)
+		end
 		#calculate the time transformation
 		w1 = (2 * t + dt) / 2#time average (value at tau=0) 
 		w2 = (dt) / 2#time scaling factor	(tf-t0)/2
@@ -80,7 +78,7 @@ function step(y0, dy0, as, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2
 		#begin picard iteration
 		ierr = 1
 		itr = 0
-		old_as = ys * 0
+		old_as = zeros(size(A)[1], size(y0)[1])
 		while ierr > itol && itr < maxIters
 
 			#calculate the new guess along the entire trajectory
@@ -104,7 +102,7 @@ function step(y0, dy0, as, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2
 			#tolerance (scaled by the max acceleration over the trajectory)
 
 			#difference in last coefficients between iterations
-			da_end = as[end, :] - old_as[end, :] 
+			da_end = as[:, :] - old_as[:, :] 
 			ierr = (maximum(abs.(da_end)) / maximum(abs.(new_a)))
 
 			#update the guess
@@ -133,7 +131,6 @@ function step(y0, dy0, as, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2
 				istat = 2
 			end
 		elseif verbose
-			println("Segment: ", iseg, " Time: ", t, " dt: ", dt)
 			println("\t Error too large (", err, ") retrying with smaller timestep")
 		end
 		#next iteration timestep
@@ -225,7 +222,7 @@ function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 32, verbose = fal
 	sol_time[1] = t0
 
 	#pre compute the quadrature and chebyshev matrices
-	A, Ta, P1, T1, P2, T2 = ClenshawCurtisQuadrature.clenshaw_curtis_ivpii(N)
+	A, Ta, P1, T1, P2, T2 = clenshaw_curtis_ivpii(N,M)
 
 	#initialize the chebyshev coefficients
 	as = zeros(N + 1, dim)
