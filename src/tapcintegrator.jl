@@ -143,7 +143,7 @@ function step(y0, dy0, ddy0, as, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, 
 		#next iteration timestep
 		if dtreq / dt > 1 / fac
 			dt = dt / fac
-		elseif dtreq < 1e-12
+		elseif dtreq < 1e-10
 			dt = dt * fac
 		else
 			dt = dtreq
@@ -209,7 +209,7 @@ function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 32, verbose = fal
 		end
 	else
 		if !isnothing(exponent)
-			Printlin("Warning: user provided exponent ignored when fixed timestep dt is specified")
+			println("Warning: user provided exponent ignored when fixed timestep dt is specified")
 		end
 		exp = 0
 		ddy0 = ode(t0, y0, dy0, params)
