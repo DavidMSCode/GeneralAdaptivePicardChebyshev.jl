@@ -1,7 +1,7 @@
-using TAPC
+using GeneralAdaptivePicardChebyshev
 using Test
 
-@testset "TAPC.jl" begin
+@testset "GeneralAdaptivePicardChebyshev.jl" begin
     #simple 2nd order ode
     ode = f(t,y,dy,params) = [-(2*pi)^2*y[1]]
     y0 = [1]
