@@ -38,7 +38,7 @@ function initial_time_step(y0, dy0, t0, order, ode, params)
 		dt1 = (0.01 / maximum([d1, d2]))^(1.0 / (p + 1))
 	end # if
 
-	dt = minimum([100 * dt0, dt1])
+	dt = minimum([100 * dt0, dt1])*order/10
 	return dt, f0
 end # function
 
