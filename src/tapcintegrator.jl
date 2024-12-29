@@ -56,7 +56,7 @@ function initial_time_step(y0, dy0, t0, order, ode, params)
 end # function
 
 
-function step(y0, dy0, ddy0, gammas, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2, tol, exponent, fac, iseg, ode, params, verbose, maxIters, itol, analytic_guess,feval)
+function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2, tol, exponent, fac, iseg, ode, params, verbose, maxIters, itol, analytic_guess,feval)
 	#Hardcoded max segment iterations (with different dts)
 	maxSegIters = 40
 
@@ -64,9 +64,11 @@ function step(y0, dy0, ddy0, gammas, betas, alphas, dt, t, tf, N, M, A, Ta, P1, 
 	Ms = 0:M
 	#tau time [-1,1] nodes that chebyshev functions are valid with cosine spacing
 	taus = -cos.(π * (Ms ./ M))
-	new_a = gammas * 0
-	ys = gammas * 0
-	dys = gammas * 0
+	new_a = gamma * 0
+	ys = gamma * 0
+	dys = gamma * 0
+	ys[1, :] = y0
+	dys[1, :] = dy0
 	times = zeros(N + 1)
 
 	#Initialize the picard iteration loop
@@ -80,9 +82,11 @@ function step(y0, dy0, ddy0, gammas, betas, alphas, dt, t, tf, N, M, A, Ta, P1, 
 		w1 = (2 * t + dt) / 2#time average (value at tau=0) 
 		w2 = (dt) / 2#time scaling factor	(tf-t0)/2
 		times = w1 .+ w2 * taus#real times at chebyshev nodes
+
 		#if user specified analytic_guess use it for initial trajectory,
 		#otherwise use constant initial conditions
 		ys, dys = analytic_guess(times, y0, dy0, params)
+		#condition from previous segment
 
 		#begin picard iteration
 		ierr = 1
@@ -96,10 +100,10 @@ function step(y0, dy0, ddy0, gammas, betas, alphas, dt, t, tf, N, M, A, Ta, P1, 
 			feval = feval + (M-1)
 			#calculate the least squares coefficients for the acceleration
 			#polynomial
-			gammas = A * new_a
+			gamma = A * new_a
 			#calculate velocity coefficients (and multipley time scale to get
 			#units of real time)
-			beta = w2 * P1 * gammas
+			beta = w2 * P1 * gamma
 			beta[1, :] += dy0 #add initial velocity
 			new_dys = T1[2:end,:] * beta #integrate new velocity at the chebyshev nodes (>1)
 			#calculate the position coefficients (and multiply by time scale to
@@ -113,13 +117,13 @@ function step(y0, dy0, ddy0, gammas, betas, alphas, dt, t, tf, N, M, A, Ta, P1, 
 			#tolerance (scaled by the max acceleration over the trajectory)
 
 			#difference in last coefficients between iterations
-			da = gammas[:, :] - old_gammas[:, :] 
+			da = gamma[:, :] - old_gammas[:, :] 
 			ierr = (maximum(abs.(da)) / maximum(abs.(new_a)))
 
 			#update the solution vectors for nodes > 1
 			ys[2:end,:], dys[2:end,:] = new_ys, new_dys
 			#store old acceleration coefficients
-			old_gammas = gammas
+			old_gammas = gamma
 			itr += 1
 			if verbose
 				println("\t\tIteration: ", itr, " Convergence Error: ", ierr)
@@ -127,7 +131,7 @@ function step(y0, dy0, ddy0, gammas, betas, alphas, dt, t, tf, N, M, A, Ta, P1, 
 		end
 
 		#compute global error estimate for the segment
-		estim_a_end = maximum(abs.(gammas[end, :])) / maximum(abs.(new_a))
+		estim_a_end = maximum(abs.(gamma[end, :])) / maximum(abs.(new_a))
 		err = (estim_a_end / tol)^(exponent)
 
 		#calculate next step size
@@ -174,7 +178,7 @@ function step(y0, dy0, ddy0, gammas, betas, alphas, dt, t, tf, N, M, A, Ta, P1, 
 		istat = -1
 	end
 
-	return ys, dys, new_a, times, dt, gammas, alphas, betas, istat, feval
+	return ys, dys, new_a, times, dt, gamma, alpha, beta, istat, feval
 end
 
 
@@ -212,7 +216,7 @@ function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 32, verbose = fal
 	M = N-2
 
 	#maximum timestep change factor
-	fac = 0.25
+	fac = 0.5
 
 	#initialize the timestep with logic for user specified timestep and timescale exponent
 	if isnothing(dt)
