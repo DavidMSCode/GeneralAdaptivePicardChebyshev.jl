@@ -101,12 +101,12 @@ function step(y0, dy0, ddy0, gammas, betas, alphas, dt, t, tf, N, M, A, Ta, P1, 
 			#units of real time)
 			beta = w2 * P1 * gammas
 			beta[1, :] += dy0 #add initial velocity
-			new_dys = T1 * beta #integrate new velocity at the chebyshev nodes (>1)
+			new_dys = T1[2:end,:] * beta #integrate new velocity at the chebyshev nodes (>1)
 			#calculate the position coefficients (and multiply by time scale to
 			#get units of real time)
 			alpha = w2 * P2 * beta
 			alpha[1, :] += y0#add initial position
-			new_ys = T2 * alpha#calculate the new positions at the chebyshev nodes
+			new_ys = T2[2:end,:] * alpha#calculate the new positions at the chebyshev nodes
 
 			#estimate the convergence by checking if the last three coefficients
 			#of the acceleration polynomials are less than the iteration
@@ -117,7 +117,7 @@ function step(y0, dy0, ddy0, gammas, betas, alphas, dt, t, tf, N, M, A, Ta, P1, 
 			ierr = (maximum(abs.(da)) / maximum(abs.(new_a)))
 
 			#update the solution vectors for nodes > 1
-			ys, dys = new_ys, new_dys
+			ys[2:end,:], dys[2:end,:] = new_ys, new_dys
 			#store old acceleration coefficients
 			old_gammas = gammas
 			itr += 1
