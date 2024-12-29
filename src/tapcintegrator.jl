@@ -1,4 +1,18 @@
-function zero_accel_guess(ts, y0, dy0, params)
+
+function constant_accel_guess(ts,y0,dy0,ddy0,params)
+	#return parabolic trajectory
+	t0 = ts[1]
+	dims = length(y0)
+	ys = zeros(length(ts), dims)
+	dys = zeros(length(ts), dims)
+	for i in 1:dims
+		ys[:, i] .= y0[i] .+ dy0[i] * (ts .- t0) .+ 0.5 * ddy0[i] * (ts .- t0).^2
+		dys[:, i] .= dy0[i] .+ ddy0[i] * (ts .- t0)
+	end
+	return ys, dys
+end
+
+function zero_accel_guess(ts, y0, dy0, ddy0, params)
 	#guess a solution with zero acceleration but constant velocity
 	t0 = ts[1]
 	dims = length(y0)
@@ -11,7 +25,7 @@ function zero_accel_guess(ts, y0, dy0, params)
 	return ys, dys
 end
 
-function stationary_guess(ts, y0, dy0, params)
+function stationary_guess(ts, y0, dy0, ddy0, params)
 	t0 = ts[1]
 	dims = length(y0)
 	ys = zeros(length(ts), dims)
@@ -23,7 +37,7 @@ function stationary_guess(ts, y0, dy0, params)
 	return ys, dys
 end
 
-function initial_time_step(y0, dy0, t0, order, ode, params)
+function initial_time_step(y0, dy0, t0, order, ode, params,tol)
 	#from Gauss-Radau code: Moving Planets Around chapter 8
 	#integration order
 	p = order
@@ -56,10 +70,9 @@ function initial_time_step(y0, dy0, t0, order, ode, params)
 end # function
 
 
-function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2, tol, exponent, fac, iseg, ode, params, verbose, maxIters, itol, analytic_guess,feval)
+function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2, tol, exponent, fac, iseg, ode, params, verbose, maxIters, itol, analytic_guess,feval,rejects)
 	#Hardcoded max segment iterations (with different dts)
 	maxSegIters = 40
-
 	#initialize the chebyshev nodes and solution vectors
 	Ms = 0:M
 	#tau time [-1,1] nodes that chebyshev functions are valid with cosine spacing
@@ -85,7 +98,7 @@ function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1,
 
 		#if user specified analytic_guess use it for initial trajectory,
 		#otherwise use constant initial conditions
-		ys, dys = analytic_guess(times, y0, dy0, params)
+		ys, dys = analytic_guess(times, y0, dy0, ddy0, params)
 		#condition from previous segment
 
 		#begin picard iteration
@@ -94,6 +107,8 @@ function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1,
 		old_gammas = zeros(size(A)[1], size(y0)[1])
 		new_a = ys*0.0
 		new_a[1, :] = ddy0 #initial acceleration (should not change in the iteration)
+		#keep history of ierr in 10 length empty array
+		ierrors = fill(NaN, 10)
 		while ierr > itol && itr < maxIters
 			#calculate the new guess along the entire trajectory
 			new_a[2:end,:] = stack([ode(state..., params) for state in zip(times[2:end], eachrow(ys[2:end,:]), eachrow(dys[2:end,:]))], dims = 1)
@@ -128,14 +143,22 @@ function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1,
 			if verbose
 				println("\t\tIteration: ", itr, " Convergence Error: ", ierr)
 			end
+			ierrors[mod(itr, 10) + 1] = ierr
+			#break if ierr has repeated values in last 10 iterations
+			if count(x->x==ierr,ierrors) > 2
+				if verbose
+					println("\t\tError has repeated values, breaking iteration")
+				end
+				 break
+			end
 		end
 
 		#compute global error estimate for the segment
 		estim_a_end = maximum(abs.(gamma[end, :])) / maximum(abs.(new_a))
 		err = (estim_a_end / tol)^(exponent)
 
-		#calculate next step size
-		dtreq = dt / err
+		#calculate next step size with safety factor
+		dtreq = dt / err*0.9
 
 		if err <= 1
 			#accept the solution
@@ -151,8 +174,11 @@ function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1,
 				t = nextfloat(t)
 				istat = 2
 			end
-		elseif verbose
-			println("\t Error too large (", err, ") retrying with smaller timestep")
+		else
+			if verbose
+				println("\t Error too large (", err, ") retrying with smaller timestep")
+			end
+			rejects += 1
 		end
 		#next iteration timestep
 		if dtreq / dt > 1 / fac
@@ -178,7 +204,7 @@ function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1,
 		istat = -1
 	end
 
-	return ys, dys, new_a, times, dt, gamma, alpha, beta, istat, feval
+	return ys, dys, new_a, times, dt, gamma, alpha, beta, istat, feval, rejects
 end
 
 
@@ -220,7 +246,7 @@ function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 32, verbose = fal
 
 	#initialize the timestep with logic for user specified timestep and timescale exponent
 	if isnothing(dt)
-		dt, ddy0 = initial_time_step(y0, dy0, t0, N, ode, params)
+		dt, ddy0 = initial_time_step(y0, dy0, t0, N, ode, params,tol)
 		if isnothing(exponent)
 			#timescale exponent for global error estimation
 			exp = 1 / N
@@ -238,11 +264,12 @@ function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 32, verbose = fal
 	#set the initial analytic guess function if provided. Otherwise use zero
 	#acceleration guess
 	if isnothing(analytic_guess)
-		analytic_guess = zero_accel_guess
+		analytic_guess = constant_accel_guess
 	end
 
 	#statistics
 	feval = 0
+	rejects = 0
 
 	#initialize solution at all nodes
 	nstore = 10000
@@ -267,7 +294,6 @@ function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 32, verbose = fal
 	alphas = zeros(M + 3, dim)
 	t = t0
 
-
 	if verbose
 		println("Initial timestep=", dt)
 	end
@@ -279,7 +305,7 @@ function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 32, verbose = fal
 		#update segment count
 		iseg += 1
 		#advance solution  by 1 segment
-		ys, dys, ddys, ts, dt, gammas, alphas, betas, istat,feval = step(y0, dy0, ddy0, gammas, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2, tol, exp, fac, iseg, ode, params, verbose, maxIters, itol, analytic_guess,feval)
+		ys, dys, ddys, ts, dt, gammas, alphas, betas, istat,feval,rejects = step(y0, dy0, ddy0, gammas, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2, tol, exp, fac, iseg, ode, params, verbose, maxIters, itol, analytic_guess,feval,rejects)
 		if istat == -1
 			#check if the iteration failed to converge
 			println("Warning: Picard iteration failed to converge on segment ", iseg)
@@ -310,5 +336,5 @@ function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 32, verbose = fal
 		sol_acc[range, :] = ddys[2:end, :]
 		sol_time[range] = ts[2:end]
 	end #while
-	return sol_time[1:iseg*M+1], sol_pos[1:iseg*M+1, :], sol_vel[1:iseg*M+1, :], sol_acc[1:iseg*M+1, :], istat, feval
+	return sol_time[1:iseg*M+1], sol_pos[1:iseg*M+1, :], sol_vel[1:iseg*M+1, :], sol_acc[1:iseg*M+1, :], istat, feval, rejects
 end
