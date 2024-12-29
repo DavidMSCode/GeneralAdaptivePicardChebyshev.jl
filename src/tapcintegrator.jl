@@ -1,4 +1,17 @@
 function zero_accel_guess(ts, y0, dy0, params)
+	#guess a solution with zero acceleration but constant velocity
+	t0 = ts[1]
+	dims = length(y0)
+	ys = zeros(length(ts), dims)
+	dys = zeros(length(ts), dims)
+	for i in 1:dims
+		ys[:, i] .= y0[i] .+ dy0[i] * (ts .- t0)
+		dys[:, i] .= dy0[i]
+	end
+	return ys, dys
+end
+
+function stationary_guess(ts, y0, dy0, params)
 	t0 = ts[1]
 	dims = length(y0)
 	ys = zeros(length(ts), dims)
@@ -35,35 +48,31 @@ function initial_time_step(y0, dy0, t0, order, ode, params)
 	if maximum([d1, d2]) <= 1e-15
 		dt1 = maximum([1e-6, dt0 * 1e-3])
 	else
-		dt1 = (0.01 / maximum([d1, d2]))^(1.0 / (p + 1))
+		dt1 = (0.01 / maximum([d1, d2]))^(1.0 / (p/2 + 1))
 	end # if
 
-	dt = minimum([100 * dt0, dt1])*order/10
+	dt = minimum([100 * dt0, dt1])
 	return dt, f0
 end # function
 
 
-function step(y0, dy0, ddy0, as, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2, tol, exponent, fac, iseg, ode, params, verbose, maxIters, itol, analytic_guess)
-	#set the initial analytic guess function if provided. Otherwise use zero
-	#acceleration guess
-	if isnothing(analytic_guess)
-		initial_guess_function = zero_accel_guess
-	else
-		initial_guess_function = analytic_guess
-	end
+function step(y0, dy0, ddy0, gammas, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2, tol, exponent, fac, iseg, ode, params, verbose, maxIters, itol, analytic_guess,feval)
+	#Hardcoded max segment iterations (with different dts)
+	maxSegIters = 40
 
 	#initialize the chebyshev nodes and solution vectors
 	Ms = 0:M
 	#tau time [-1,1] nodes that chebyshev functions are valid with cosine spacing
 	taus = -cos.(π * (Ms ./ M))
-	new_a = as * 0
-	ys = as * 0
-	dys = as * 0
+	new_a = gammas * 0
+	ys = gammas * 0
+	dys = gammas * 0
 	times = zeros(N + 1)
 
 	#Initialize the picard iteration loop
 	istat = 0
-	while istat == 0
+	segItr = 0
+	while istat == 0 && segItr < maxSegIters
 		if verbose #print segment information
 			println("Segment: ", iseg, " Time: ", t, " dt: ", dt)
 		end
@@ -73,23 +82,24 @@ function step(y0, dy0, ddy0, as, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, 
 		times = w1 .+ w2 * taus#real times at chebyshev nodes
 		#if user specified analytic_guess use it for initial trajectory,
 		#otherwise use constant initial conditions
-		ys, dys = initial_guess_function(times, y0, dy0, params)
+		ys, dys = analytic_guess(times, y0, dy0, params)
 
 		#begin picard iteration
 		ierr = 1
 		itr = 0
-		old_as = zeros(size(A)[1], size(y0)[1])
+		old_gammas = zeros(size(A)[1], size(y0)[1])
 		new_a = ys*0.0
 		new_a[1, :] = ddy0 #initial acceleration (should not change in the iteration)
 		while ierr > itol && itr < maxIters
 			#calculate the new guess along the entire trajectory
 			new_a[2:end,:] = stack([ode(state..., params) for state in zip(times[2:end], eachrow(ys[2:end,:]), eachrow(dys[2:end,:]))], dims = 1)
+			feval = feval + (M-1)
 			#calculate the least squares coefficients for the acceleration
 			#polynomial
-			as = A * new_a
+			gammas = A * new_a
 			#calculate velocity coefficients (and multipley time scale to get
 			#units of real time)
-			beta = w2 * P1 * as
+			beta = w2 * P1 * gammas
 			beta[1, :] += dy0 #add initial velocity
 			new_dys = T1 * beta #integrate new velocity at the chebyshev nodes (>1)
 			#calculate the position coefficients (and multiply by time scale to
@@ -103,13 +113,13 @@ function step(y0, dy0, ddy0, as, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, 
 			#tolerance (scaled by the max acceleration over the trajectory)
 
 			#difference in last coefficients between iterations
-			da_end = as[:, :] - old_as[:, :] 
-			ierr = (maximum(abs.(da_end)) / maximum(abs.(new_a)))
+			da = gammas[:, :] - old_gammas[:, :] 
+			ierr = (maximum(abs.(da)) / maximum(abs.(new_a)))
 
 			#update the solution vectors for nodes > 1
 			ys, dys = new_ys, new_dys
 			#store old acceleration coefficients
-			old_as = as
+			old_gammas = gammas
 			itr += 1
 			if verbose
 				println("\t\tIteration: ", itr, " Convergence Error: ", ierr)
@@ -117,7 +127,7 @@ function step(y0, dy0, ddy0, as, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, 
 		end
 
 		#compute global error estimate for the segment
-		estim_a_end = maximum(abs.(as[end, :])) / maximum(abs.(new_a))
+		estim_a_end = maximum(abs.(gammas[end, :])) / maximum(abs.(new_a))
 		err = (estim_a_end / tol)^(exponent)
 
 		#calculate next step size
@@ -155,10 +165,16 @@ function step(y0, dy0, ddy0, as, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, 
 		if dt < eps(t + dt)
 			dt = 1e-13
 		end
+
+		segItr += 1
 	end
 
+	if istat ==0
+		#set flag to -1 for reached max segment iterations without accepted solution
+		istat = -1
+	end
 
-	return ys, dys, new_a, times, dt, as, alphas, betas, istat
+	return ys, dys, new_a, times, dt, gammas, alphas, betas, istat, feval
 end
 
 
@@ -215,6 +231,15 @@ function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 32, verbose = fal
 		ddy0 = ode(t0, y0, dy0, params)
 	end
 
+	#set the initial analytic guess function if provided. Otherwise use zero
+	#acceleration guess
+	if isnothing(analytic_guess)
+		analytic_guess = zero_accel_guess
+	end
+
+	#statistics
+	feval = 0
+
 	#initialize solution at all nodes
 	nstore = 10000
 	dim = length(y0)
@@ -233,9 +258,9 @@ function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 32, verbose = fal
 	A, Ta, P1, T1, P2, T2 = clenshaw_curtis_ivpii(N,M)
 
 	#initialize the chebyshev coefficients
-	as = zeros(N + 1, dim)
-	betas = zeros(N + 2, dim)
-	alphas = zeros(N + 3, dim)
+	gammas = zeros(M + 1, dim)
+	betas = zeros(M + 2, dim)
+	alphas = zeros(M + 3, dim)
 	t = t0
 
 
@@ -245,12 +270,18 @@ function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 32, verbose = fal
 
 	integrate_ivp2 = true
 	iseg = 0
-
+	istat = nothing
 	while integrate_ivp2
 		#update segment count
 		iseg += 1
 		#advance solution  by 1 segment
-		ys, dys, ddys, ts, dt, as, alphas, betas, istat = step(y0, dy0, ddy0, as, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2, tol, exp, fac, iseg, ode, params, verbose, maxIters, itol, analytic_guess)
+		ys, dys, ddys, ts, dt, gammas, alphas, betas, istat,feval = step(y0, dy0, ddy0, gammas, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2, tol, exp, fac, iseg, ode, params, verbose, maxIters, itol, analytic_guess,feval)
+		if istat == -1
+			#check if the iteration failed to converge
+			println("Warning: Picard iteration failed to converge on segment ", iseg)
+			println("Returning partial solution from t=", t0, " to t=", t)
+			integrate_ivp2 = false
+		end
 		t = ts[end]
 		if istat == 2
 			integrate_ivp2 = false
@@ -275,5 +306,5 @@ function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 32, verbose = fal
 		sol_acc[range, :] = ddys[2:end, :]
 		sol_time[range] = ts[2:end]
 	end #while
-	return sol_time[1:iseg*M+1], sol_pos[1:iseg*M+1, :], sol_vel[1:iseg*M+1, :], sol_acc[1:iseg*M+1, :]
+	return sol_time[1:iseg*M+1], sol_pos[1:iseg*M+1, :], sol_vel[1:iseg*M+1, :], sol_acc[1:iseg*M+1, :], istat, feval
 end
