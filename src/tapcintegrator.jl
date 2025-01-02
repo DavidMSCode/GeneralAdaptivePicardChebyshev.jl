@@ -1,4 +1,16 @@
 
+mutable struct Stats
+	feval::Int
+	accepted::Int
+	rejected::Int
+end
+
+function Base.show(io::IO, stats::Stats)
+	println("Accepted segments      : ", rpad(stats.accepted, 10))
+	println("Rejected segments      : ", rpad(stats.rejected, 10))
+	println("Function evaluations   : ", rpad(stats.feval, 10))
+end
+
 function constant_accel_guess(ts,y0,dy0,ddy0,params)
 	#return parabolic trajectory
 	t0 = ts[1]
@@ -70,7 +82,7 @@ function initial_time_step(y0, dy0, t0, order, ode, params,tol)
 end # function
 
 
-function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2, tol, exponent, fac, iseg, ode, params, verbose, maxIters, itol, analytic_guess,feval,rejects)
+function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2, tol, exponent, fac, iseg, ode, params, verbose, maxIters, itol, analytic_guess,apcstats)
 	#Hardcoded max segment iterations (with different dts)
 	maxSegIters = 40
 	#initialize the chebyshev nodes and solution vectors
@@ -112,7 +124,7 @@ function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1,
 		while ierr > itol && itr < maxIters
 			#calculate the new guess along the entire trajectory
 			new_a[2:end,:] = stack([ode(state..., params) for state in zip(times[2:end], eachrow(ys[2:end,:]), eachrow(dys[2:end,:]))], dims = 1)
-			feval = feval + (M-1)
+			apcstats.feval += (M-1)
 			#calculate the least squares coefficients for the acceleration
 			#polynomial
 			gamma = A * new_a
@@ -154,11 +166,13 @@ function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1,
 		end
 
 		#compute global error estimate for the segment
+	
 		estim_a_end = maximum(abs.(gamma[end, :])) / maximum(abs.(new_a))
+
 		err = (estim_a_end / tol)^(exponent)
 
 		#calculate next step size with safety factor
-		dtreq = dt / err*0.9
+		dtreq = dt / err*0.8
 
 		if err <= 1
 			#accept the solution
@@ -166,6 +180,8 @@ function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1,
 			istat = 1
 			#update the time by current dt
 			t += dt
+			#update the statistics
+			apcstats.accepted += 1
 			#check if we have reached the final time within one epsilon. This
 			#prevents up to two extra segments from being calculated
 			#unecessarily.
@@ -178,7 +194,7 @@ function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1,
 			if verbose
 				println("\t Error too large (", err, ") retrying with smaller timestep")
 			end
-			rejects += 1
+			apcstats.rejected += 1
 		end
 		#next iteration timestep
 		if dtreq / dt > 1 / fac
@@ -204,7 +220,7 @@ function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1,
 		istat = -1
 	end
 
-	return ys, dys, new_a, times, dt, gamma, alpha, beta, istat, feval, rejects
+	return ys, dys, new_a, times, dt, gamma, alpha, beta, istat, apcstats
 end
 
 
@@ -261,15 +277,14 @@ function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 32, verbose = fal
 		ddy0 = ode(t0, y0, dy0, params)
 	end
 
-	#set the initial analytic guess function if provided. Otherwise use zero
+	#set the initial analytic guess function if provided. Otherwise use constant
 	#acceleration guess
 	if isnothing(analytic_guess)
 		analytic_guess = constant_accel_guess
 	end
 
 	#statistics
-	feval = 0
-	rejects = 0
+	apcstats = Stats(0, 0, 0)
 
 	#initialize solution at all nodes
 	nstore = 10000
@@ -305,7 +320,7 @@ function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 32, verbose = fal
 		#update segment count
 		iseg += 1
 		#advance solution  by 1 segment
-		ys, dys, ddys, ts, dt, gammas, alphas, betas, istat,feval,rejects = step(y0, dy0, ddy0, gammas, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2, tol, exp, fac, iseg, ode, params, verbose, maxIters, itol, analytic_guess,feval,rejects)
+		ys, dys, ddys, ts, dt, gammas, alphas, betas, istat,apcstats = step(y0, dy0, ddy0, gammas, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2, tol, exp, fac, iseg, ode, params, verbose, maxIters, itol, analytic_guess,apcstats)
 		if istat == -1
 			#check if the iteration failed to converge
 			println("Warning: Picard iteration failed to converge on segment ", iseg)
@@ -336,5 +351,5 @@ function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 32, verbose = fal
 		sol_acc[range, :] = ddys[2:end, :]
 		sol_time[range] = ts[2:end]
 	end #while
-	return sol_time[1:iseg*M+1], sol_pos[1:iseg*M+1, :], sol_vel[1:iseg*M+1, :], sol_acc[1:iseg*M+1, :], istat, feval, rejects
+	return sol_time[1:iseg*M+1], sol_pos[1:iseg*M+1, :], sol_vel[1:iseg*M+1, :], sol_acc[1:iseg*M+1, :], istat, apcstats
 end
