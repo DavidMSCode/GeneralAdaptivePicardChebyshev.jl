@@ -172,7 +172,7 @@ function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1,
 		err = (estim_a_end / tol)^(exponent)
 
 		#calculate next step size with safety factor
-		dtreq = dt / err*0.8
+		dtreq = dt / err*0.9
 
 		if err <= 1
 			#accept the solution
