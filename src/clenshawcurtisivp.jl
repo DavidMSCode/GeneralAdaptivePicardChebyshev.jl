@@ -30,8 +30,8 @@ function interpolate(τs::AbstractVector{<:Real}, N::Integer; recursive::Bool = 
 	#Get the uneweighted Chebyshev polynomial values at each τ
 	js = 0:N
 	if !recursive
-		#Default behaviour: Use the trig formulation and only use the recursive
-		#formula if τ is outside the domain [-1,1]
+		#Default behaviour: Use the trig formulation for values between [-1,1]
+		#and only use the recursive formula if τ is outside the domain [-1,1]
 		Ts = [abs(τ) <= 1 ? trig_chebyshev(τ, j) :
 			  recursive_chebyshev(τ, j) for τ in τs, j in js]
 	else
@@ -203,7 +203,7 @@ Defaults to `N`.
 function clenshaw_curtis_nested_ivpd(d::Integer, N::Integer, M::Integer=N-d)
 	if M < N-d
 		throw(ArgumentError("The number of sampling nodes must be greater than
-		the polynomial order, N."))
+		the polynomial order minus the integrator order, N-d."))
 	end
 	if d > N
 		throw(ArgumentError("The polynomial order N must be greater than or
@@ -265,12 +265,11 @@ A, Ta, P1, T1, P2, T2 = clenshaw_curtis_ivpii(N, M)
 ```
 
 """
-function clenshaw_curtis_ivpii(N::Integer, M::Integer=N)
-	# if M < N
-	# 	throw(ArgumentError("The number of sampling nodes must be greater than
-	# 	the polynomial order, N."))
-	# end
-
+function clenshaw_curtis_ivpii(N::Integer, M::Integer=N-2)
+	if M < N-2
+		throw(ArgumentError("The number of sampling nodes must be greater than
+		the polynomial order minus the integrator order, N-2."))
+	end
 	# Least Squares Operator for "acceleration"
 	Ta, A = lsq_chebyshev_fit(N - 2, M)
 
@@ -320,12 +319,11 @@ points minus 1. Defaults to `N`.
 - `P1`: The Quadrature Matrix for acceleration to velocity.
 - `T1`: The "Velocity" Chebyshev Matrix.
 """
-function clenshaw_curtis_ivpi(N::Integer, M::Integer=N)
-	# if M < N
-	# 	throw(ArgumentError("The number of sampling nodes, M, must be greater
-	# 	than or equal to the polynomial order, N."))
-	# end
-
+function clenshaw_curtis_ivpi(N::Integer, M::Integer=N-1)
+	if M < N-d
+		throw(ArgumentError("The number of sampling nodes must be greater than
+		the polynomial order minus the integrator order, N-1."))
+	end
 	# Least Squares Operator for "acceleration"
 	Ta, A = lsq_chebyshev_fit(N - 1, M)
 
