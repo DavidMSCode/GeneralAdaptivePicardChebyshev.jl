@@ -226,7 +226,7 @@ end
 
 
 """
-    integrate(y0, dy0, t0, tf, tol, ode, params; N = 32, verbose = false, dt = nothing, maxIters = 20, itol = 1e-19, exponent = nothing, analytic_guess = nothing)
+    integrate(y0, dy0, t0, tf, tol, ode, params; N = 32, verbose = false, dt = nothing, maxIters = 20, itol = 1e-15, exponent = nothing, analytic_guess = nothing)
 
 Integrates a system of ordinary differential equations (ODEs) using a Chebyshev polynomial-based method.
 
@@ -238,11 +238,11 @@ Integrates a system of ordinary differential equations (ODEs) using a Chebyshev 
 - `tol::Float64`: Tolerance for the integration.
 - `ode::Function`: Function representing the ODE system.
 - `params::Any`: Additional parameters for the ODE function.
-- `N::Int`: Number of Chebyshev nodes (default: 32).
+- `N::Int`: Number of Chebyshev nodes (default: 20).
 - `verbose::Bool`: Flag for verbose output (default: false).
 - `dt::Union{Nothing, Float64}`: Initial time step (default: nothing).
 - `maxIters::Int`: Maximum number of iterations for the Picard iteration (default: 20).
-- `itol::Float64`: Iteration tolerance (default: 1e-19).
+- `itol::Float64`: Iteration tolerance (default: 1e-15).
 - `exponent::Union{Nothing, Float64}`: Exponent for global error estimation (default: nothing).
 - `analytic_guess::Union{Nothing, Function}`: Function for the initial analytic guess (default: nothing).
 
@@ -252,7 +252,7 @@ Integrates a system of ordinary differential equations (ODEs) using a Chebyshev 
 - `sol_vel::Matrix{Float64}`: Matrix of state derivatives at each time point.
 - `sol_acc::Matrix{Float64}`: Matrix of state second derivatives at each time point.
 """
-function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 32, verbose = false, dt = nothing, maxIters = 20, itol = 1e-19, exponent = nothing, analytic_guess = nothing)
+function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 20, verbose = false, dt = nothing, maxIters = 20, itol = 1e-15, exponent = nothing, analytic_guess = nothing)
 	#Number of nodes to sample solution at. Since this is a 2nd order
 	#integrator, the acceleration polynomial is of order N-2 this means the 
 	M = N-2
@@ -320,7 +320,7 @@ function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 32, verbose = fal
 		#update segment count
 		iseg += 1
 		#advance solution  by 1 segment
-		ys, dys, ddys, ts, dt, gammas, alphas, betas, istat,apcstats = step(y0, dy0, ddy0, gammas, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2, tol, exp, fac, iseg, ode, params, verbose, maxIters, itol, analytic_guess,apcstats)
+		ys, dys, ddys, ts, dt, gammas, alphas, betas, istat,apcstats = step(y0, dy0, ddy0, gammas, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2, tol, exp, fac, iseg, ode, params, verbose, maxIters, itol, analytic_guess, apcstats)
 		if istat == -1
 			#check if the iteration failed to converge
 			println("Warning: Picard iteration failed to converge on segment ", iseg)
