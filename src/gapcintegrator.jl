@@ -11,14 +11,14 @@ function Base.show(io::IO, stats::Stats)
 	println("Function evaluations   : ", rpad(stats.feval, 10))
 end
 
-function constant_accel_guess(ts,y0,dy0,ddy0,params)
+function constant_accel_guess(ts, y0, dy0, ddy0, params)
 	#return parabolic trajectory
 	t0 = ts[1]
 	dims = length(y0)
 	ys = zeros(length(ts), dims)
 	dys = zeros(length(ts), dims)
 	for i in 1:dims
-		ys[:, i] .= y0[i] .+ dy0[i] * (ts .- t0) .+ 0.5 * ddy0[i] * (ts .- t0).^2
+		ys[:, i] .= y0[i] .+ dy0[i] * (ts .- t0) .+ 0.5 * ddy0[i] * (ts .- t0) .^ 2
 		dys[:, i] .= dy0[i] .+ ddy0[i] * (ts .- t0)
 	end
 	return ys, dys
@@ -49,7 +49,7 @@ function stationary_guess(ts, y0, dy0, ddy0, params)
 	return ys, dys
 end
 
-function initial_time_step(y0, dy0, t0, order, ode, params,tol)
+function initial_time_step(y0, dy0, t0, order, ode, params, tol)
 	#from Gauss-Radau code: Moving Planets Around chapter 8
 	#integration order
 	p = order
@@ -74,15 +74,15 @@ function initial_time_step(y0, dy0, t0, order, ode, params,tol)
 	if maximum([d1, d2]) <= 1e-15
 		dt1 = maximum([1e-6, dt0 * 1e-3])
 	else
-		dt1 = (0.01 / maximum([d1, d2]))^(1.0 / (p/2 + 1))
+		dt1 = (0.01 / maximum([d1, d2]))^(1.0 / (p / 2 + 1))
 	end # if
 
-	dt = minimum([100 * dt0, dt1])*3
+	dt = minimum([100 * dt0, dt1]) * 3
 	return dt, f0
 end # function
 
 
-function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2, tol, exponent, fac, iseg, ode, params, verbose, maxIters, itol, analytic_guess,apcstats)
+function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2, tol, exponent, fac, iseg, ode, params, verbose, maxIters, itol, analytic_guess, apcstats)
 	#Hardcoded max segment iterations (with different dts)
 	maxSegIters = 40
 	#initialize the chebyshev nodes and solution vectors
@@ -115,14 +115,14 @@ function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1,
 		ierr = 1
 		itr = 0
 		old_gammas = zeros(size(A)[1], size(y0)[1])
-		new_a = ys*0.0
+		new_a = ys * 0.0
 		new_a[1, :] = ddy0 #initial acceleration (should not change in the iteration)
 		#keep history of ierr in 10 length empty array
 		ierrors = fill(NaN, 10)
 		while ierr > itol && itr < maxIters
 			#calculate the new acceleration along the entire trajectory
-			new_a[2:end,:] = stack([ode(state..., params) for state in zip(times[2:end], eachrow(ys[2:end,:]), eachrow(dys[2:end,:]))], dims = 1)
-			apcstats.feval += (M-1)
+			new_a[2:end, :] = stack([ode(state..., params) for state in zip(times[2:end], eachrow(ys[2:end, :]), eachrow(dys[2:end, :]))], dims = 1)
+			apcstats.feval += (M - 1)
 			#calculate the least squares coefficients for the acceleration
 			#polynomial
 			gamma = A * new_a
@@ -130,47 +130,47 @@ function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1,
 			#units of real time)
 			beta = w2 * P1 * gamma
 			beta[1, :] += dy0 #add initial velocity
-			new_dys = T1[2:end,:] * beta #integrate new velocity at the chebyshev nodes (>1)
+			new_dys = T1[2:end, :] * beta #integrate new velocity at the chebyshev nodes (>1)
 			#calculate the position coefficients (and multiply by time scale to
 			#get units of real time)
 			alpha = w2 * P2 * beta
 			alpha[1, :] += y0#add initial position
-			new_ys = T2[2:end,:] * alpha#calculate the new positions at the chebyshev nodes
+			new_ys = T2[2:end, :] * alpha#calculate the new positions at the chebyshev nodes
 
 			#estimate the convergence by checking if the last three coefficients
 			#of the acceleration polynomials are less than the iteration
 			#tolerance (scaled by the max acceleration over the trajectory)
 
 			#difference in last coefficients between iterations
-			da = gamma[:, :] - old_gammas[:, :] 
+			da = gamma[:, :] - old_gammas[:, :]
 			ierr = (maximum(abs.(da)) / maximum(abs.(new_a)))
 
 			#update the solution vectors for nodes > 1
-			ys[2:end,:], dys[2:end,:] = new_ys, new_dys
+			ys[2:end, :], dys[2:end, :] = new_ys, new_dys
 			#store old acceleration coefficients
 			old_gammas = gamma
 			itr += 1
 			if verbose
 				println("\t\tIteration: ", itr, " Convergence Error: ", ierr)
 			end
-			ierrors[mod(itr, 10) + 1] = ierr
+			ierrors[mod(itr, 10)+1] = ierr
 			#break if ierr has repeated values in last 10 iterations
-			if count(x->x==ierr,ierrors) > 2
+			if count(x -> x == ierr, ierrors) > 2
 				if verbose
 					println("\t\tError has repeated values, breaking iteration")
 				end
-				 break
+				break
 			end
 		end
 
 		#compute global error estimate for the segment
-	
+
 		estim_a_end = maximum(abs.(gamma[end, :])) / maximum(abs.(new_a))
 
 		err = (estim_a_end / tol)^(exponent)
 
 		#calculate next step size with safety factor
-		dtreq = dt / err*0.9
+		dtreq = dt / err * 0.9
 
 		if err <= 1
 			#accept the solution
@@ -211,7 +211,7 @@ function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1,
 			dt = 1e-13
 		end
 
-		if istat==0
+		if istat == 0
 			if verbose
 				println("\t\tReinterpolating solution for new guess with smaller timestep")
 			end
@@ -224,10 +224,10 @@ function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1,
 			#convert to taus of old solution
 			taus_old = (times .- w1) ./ w2
 			#interpolate the old solution to the new nodes
-			Tx = interpolate(taus_old,N,supress_warning=true)
+			Tx = interpolate(taus_old, N, supress_warning = true)
 			Tv = Tx[:, 1:end-1]
-			ys[2:end,:] = Tx[2:end,:] * alpha
-			dys[2:end,:] = Tv[2:end,:] * beta
+			ys[2:end, :] = Tx[2:end, :] * alpha
+			dys[2:end, :] = Tv[2:end, :] * beta
 
 			w1 = w1_new
 			w2 = w2_new
@@ -235,7 +235,7 @@ function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1,
 		segItr += 1
 	end
 
-	if istat ==0
+	if istat == 0
 		#set flag to -1 for reached max segment iterations without accepted solution
 		istat = -1
 	end
@@ -246,7 +246,7 @@ end
 
 
 """
-    integrate(y0, dy0, t0, tf, tol, ode, params; N = 32, verbose = false, dt = nothing, maxIters = 20, itol = 1e-15, exponent = nothing, analytic_guess = nothing)
+	integrate(y0, dy0, t0, tf, tol, ode, params; N = 32, verbose = false, dt = nothing, maxIters = 20, itol = 1e-15, exponent = nothing, analytic_guess = nothing)
 
 Integrates a system of ordinary differential equations (ODEs) using a Chebyshev polynomial-based method.
 
@@ -275,14 +275,14 @@ Integrates a system of ordinary differential equations (ODEs) using a Chebyshev 
 function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 20, verbose = false, dt = nothing, maxIters = 20, itol = 1e-15, exponent = nothing, analytic_guess = nothing)
 	#Number of nodes to sample solution at. Since this is a 2nd order
 	#integrator, the acceleration polynomial is of order N-2 this means the 
-	M = N-2
+	M = N - 2
 
 	#maximum timestep change factor
 	fac = 0.5
 
 	#initialize the timestep with logic for user specified timestep and timescale exponent
 	if isnothing(dt)
-		dt, ddy0 = initial_time_step(y0, dy0, t0, N, ode, params,tol)
+		dt, ddy0 = initial_time_step(y0, dy0, t0, N, ode, params, tol)
 		if isnothing(exponent)
 			#timescale exponent for global error estimation
 			exp = 1 / N
@@ -321,7 +321,7 @@ function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 20, verbose = fal
 	sol_time[1] = t0
 
 	#pre compute the quadrature and chebyshev matrices
-	A, Ta, P1, T1, P2, T2 = clenshaw_curtis_ivpii(N,M)
+	A, Ta, P1, T1, P2, T2 = clenshaw_curtis_ivpii(N, M)
 
 	#initialize the chebyshev coefficients
 	gammas = zeros(M + 1, dim)
@@ -340,7 +340,7 @@ function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 20, verbose = fal
 		#update segment count
 		iseg += 1
 		#advance solution  by 1 segment
-		ys, dys, ddys, ts, dt, gammas, alphas, betas, istat,apcstats = step(y0, dy0, ddy0, gammas, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2, tol, exp, fac, iseg, ode, params, verbose, maxIters, itol, analytic_guess, apcstats)
+		ys, dys, ddys, ts, dt, gammas, alphas, betas, istat, apcstats = step(y0, dy0, ddy0, gammas, betas, alphas, dt, t, tf, N, M, A, Ta, P1, T1, P2, T2, tol, exp, fac, iseg, ode, params, verbose, maxIters, itol, analytic_guess, apcstats)
 		if istat == -1
 			#check if the iteration failed to converge
 			println("Warning: Picard iteration failed to converge on segment ", iseg)
@@ -372,4 +372,16 @@ function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 20, verbose = fal
 		sol_time[range] = ts[2:end]
 	end #while
 	return sol_time[1:iseg*M+1], sol_pos[1:iseg*M+1, :], sol_vel[1:iseg*M+1, :], sol_acc[1:iseg*M+1, :], istat, apcstats
+end
+
+function integrate_ivp1(dy0, t0, tf, tol, ode, params; N = 20, verbose = false, dt = nothing, maxIters = 20, itol = 1e-15, exponent = nothing, analytic_guess = nothing)
+	dummy_y0 = 0 * dy0
+
+	#convert first order oder
+	function second_order_ode(t, dummy_y, dy, params)
+		return ode(t, dy, params)
+	end
+
+	t, y, dy, ddy, istat, apcstats = integrate_ivp2(dummy_y0, dy0, t0, tf, tol, second_order_ode, params, N=N, verbose=verbose, dt=dt, maxIters=maxIters, itol=itol, exponent=exponent, analytic_guess=analytic_guess)
+	return t, dy, ddy, istat, apcstats
 end
