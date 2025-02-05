@@ -19,12 +19,13 @@ trigonometric formulation. Default is false.
 # Returns
 - `Ts`: A matrix of Chebyshev polynomial values at the given values of τ.
 """
-function interpolate(τs::AbstractVector{<:Real}, N::Integer; recursive::Bool = false)
+function interpolate(τs::AbstractVector{<:Real}, N::Integer; recursive::Bool = false, supress_warning = false)
 	#find the indeces of the τs that are outside the domain
 	idx_outside = findall(x -> abs(x) > 1, τs)
-	if !isempty(idx_outside)
-		@warn ("The input values at the following indices are outside the
-		domain [-1,1]: $idx_outside. Extrapolated values may be innacurate.")
+	values_outside = τs[idx_outside]
+	if !isempty(idx_outside) && !supress_warning
+		@warn ("The input values listed are outside the
+		domain [-1,1]: $values_outside. Extrapolated values may be innacurate.")
 	end
 
 	#Get the uneweighted Chebyshev polynomial values at each τ

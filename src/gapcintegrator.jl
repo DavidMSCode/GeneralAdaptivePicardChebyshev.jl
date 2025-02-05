@@ -77,7 +77,7 @@ function initial_time_step(y0, dy0, t0, order, ode, params,tol)
 		dt1 = (0.01 / maximum([d1, d2]))^(1.0 / (p/2 + 1))
 	end # if
 
-	dt = minimum([100 * dt0, dt1])
+	dt = minimum([100 * dt0, dt1])*3
 	return dt, f0
 end # function
 
@@ -96,6 +96,14 @@ function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1,
 	dys[1, :] = dy0
 	times = zeros(N + 1)
 
+	#calculate the time transformation for first guess
+	w1 = (2 * t + dt) / 2#time average (value at tau=0) 
+	w2 = (dt) / 2#time scaling factor	(tf-t0)/2
+	times = w1 .+ w2 * taus#real times at chebyshev nodes
+
+	#if user specified analytic_guess use it for initial trajectory,
+	#otherwise use constant initial conditions
+	ys, dys = analytic_guess(times, y0, dy0, ddy0, params)
 	#Initialize the picard iteration loop
 	istat = 0
 	segItr = 0
@@ -103,16 +111,6 @@ function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1,
 		if verbose #print segment information
 			println("Segment: ", iseg, " Time: ", t, " dt: ", dt)
 		end
-		#calculate the time transformation
-		w1 = (2 * t + dt) / 2#time average (value at tau=0) 
-		w2 = (dt) / 2#time scaling factor	(tf-t0)/2
-		times = w1 .+ w2 * taus#real times at chebyshev nodes
-
-		#if user specified analytic_guess use it for initial trajectory,
-		#otherwise use constant initial conditions
-		ys, dys = analytic_guess(times, y0, dy0, ddy0, params)
-		#condition from previous segment
-
 		#begin picard iteration
 		ierr = 1
 		itr = 0
@@ -122,7 +120,7 @@ function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1,
 		#keep history of ierr in 10 length empty array
 		ierrors = fill(NaN, 10)
 		while ierr > itol && itr < maxIters
-			#calculate the new guess along the entire trajectory
+			#calculate the new acceleration along the entire trajectory
 			new_a[2:end,:] = stack([ode(state..., params) for state in zip(times[2:end], eachrow(ys[2:end,:]), eachrow(dys[2:end,:]))], dims = 1)
 			apcstats.feval += (M-1)
 			#calculate the least squares coefficients for the acceleration
@@ -196,6 +194,7 @@ function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1,
 			end
 			apcstats.rejected += 1
 		end
+
 		#next iteration timestep
 		if dtreq / dt > 1 / fac
 			dt = dt / fac
@@ -212,6 +211,27 @@ function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1,
 			dt = 1e-13
 		end
 
+		if istat==0
+			if verbose
+				println("\t\tReinterpolating solution for new guess with smaller timestep")
+			end
+			#use current solution for initial guess but interpolated to new
+			#nodes due to shorter segment length
+			w1_new = (2 * t + dt) / 2#new time average (value at tau=0) 
+			w2_new = (dt) / 2#new time scaling factor	(tf-t0)/2
+			times = w1_new .+ w2_new * taus#new real times chebyshev nodes
+
+			#convert to taus of old solution
+			taus_old = (times .- w1) ./ w2
+			#interpolate the old solution to the new nodes
+			Tx = interpolate(taus_old,N,supress_warning=true)
+			Tv = Tx[:, 1:end-1]
+			ys[2:end,:] = Tx[2:end,:] * alpha
+			dys[2:end,:] = Tv[2:end,:] * beta
+
+			w1 = w1_new
+			w2 = w2_new
+		end
 		segItr += 1
 	end
 
