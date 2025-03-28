@@ -136,7 +136,8 @@ function step(y0, dy0, ddy0, gamma, beta, alpha, dt, t, tf, N, M, A, Ta, P1, T1,
 			alpha = w2 * P2 * beta
 			alpha[1, :] += y0#add initial position
 			new_ys = T2[2:end, :] * alpha#calculate the new positions at the chebyshev nodes
-
+			Y0 = 0*alpha
+			Y0[1, :] = y0
 			#estimate the convergence by checking if the last three coefficients
 			#of the acceleration polynomials are less than the iteration
 			#tolerance (scaled by the max acceleration over the trajectory)
@@ -272,7 +273,7 @@ Integrates a system of ordinary differential equations (ODEs) using a Chebyshev 
 - `sol_vel::Matrix{Float64}`: Matrix of state derivatives at each time point.
 - `sol_acc::Matrix{Float64}`: Matrix of state second derivatives at each time point.
 """
-function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 20, verbose = false, dt = nothing, maxIters = 20, itol = 1e-15, exponent = nothing, analytic_guess = nothing)
+function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 20, verbose = false, dt = nothing, maxIters = 20, itol = 1e-15, exponent = nothing, analytic_guess = nothing, times=nothing)
 	#Number of nodes to sample solution at. Since this is a 2nd order
 	#integrator, the acceleration polynomial is of order N-2 this means the 
 	M = N - 2
@@ -308,17 +309,26 @@ function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 20, verbose = fal
 
 	#initialize solution at all nodes
 	nstore = 10000
+	cstore = 500
 	dim = length(y0)
 
-	sol_pos = zeros(nstore, dim)
-	sol_vel = zeros(nstore, dim)
-	sol_acc = zeros(nstore, dim)
+	sol_y = zeros(nstore, dim)
+	sol_dy = zeros(nstore, dim)
+	sol_ddy = zeros(nstore, dim)
 	sol_time = zeros(nstore)
 
-	sol_pos[1, :] = y0
-	sol_vel[1, :] = dy0
-	sol_acc[1, :] = ddy0
+	sol_y[1, :] = y0
+	sol_dy[1, :] = dy0
+	sol_ddy[1, :] = ddy0
 	sol_time[1] = t0
+
+	#initialize polynomial coefficient storage
+	ddy_coeffs = zeros(cstore, M + 1, dim)
+	dy_coeffs = zeros(cstore, M + 2, dim)
+	y_coeffs = zeros(cstore, M + 3, dim)
+	segment_times = zeros(cstore)
+
+	segment_times[1] = t0
 
 	#pre compute the quadrature and chebyshev matrices
 	A, Ta, P1, T1, P2, T2 = clenshaw_curtis_ivpii(N, M)
@@ -357,24 +367,50 @@ function integrate_ivp2(y0, dy0, t0, tf, tol, ode, params; N = 20, verbose = fal
 		ddy0 = ddys[end, :]
 
 		#check if solution vectors need to be expanded
-		if iseg * N + 1 > size(sol_pos, 1)
-			sol_pos = vcat(sol_pos, zeros(nstore, dim))
-			sol_vel = vcat(sol_vel, zeros(nstore, dim))
-			sol_acc = vcat(sol_acc, zeros(nstore, dim))
+		if iseg * N + 1 > size(sol_y, 1)
+			sol_y = vcat(sol_y, zeros(nstore, dim))
+			sol_dy = vcat(sol_dy, zeros(nstore, dim))
+			sol_ddy = vcat(sol_ddy, zeros(nstore, dim))
 			sol_time = vcat(sol_time, zeros(nstore))
 		end
 
 		#store the solution
 		range = (iseg-1)*M+2:(iseg)*M+1
-		sol_pos[range, :] = ys[2:end, :]
-		sol_vel[range, :] = dys[2:end, :]
-		sol_acc[range, :] = ddys[2:end, :]
+		sol_y[range, :] = ys[2:end, :]
+		sol_dy[range, :] = dys[2:end, :]
+		sol_ddy[range, :] = ddys[2:end, :]
 		sol_time[range] = ts[2:end]
+
+		#check if the polynomial coefficient storage needs to be expanded
+		if iseg+1 > size(ddy_coeffs, 1)
+			ddy_coeffs = vcat(ddy_coeffs, zeros(cstore, M + 1, dim))
+			dy_coeffs = vcat(dy_coeffs, zeros(cstore, M + 2, dim))
+			y_coeffs = vcat(y_coeffs, zeros(cstore, M + 3, dim))
+			segment_times = vcat(segment_times, zeros(cstore))
+		end
+
+		#store the polynomial coefficients
+		ddy_coeffs[iseg, :, :] = gammas
+		dy_coeffs[iseg, :, :] = betas
+		y_coeffs[iseg, :, :] = alphas
+		segment_times[iseg+1] = t
 	end #while
-	return sol_time[1:iseg*M+1], sol_pos[1:iseg*M+1, :], sol_vel[1:iseg*M+1, :], sol_acc[1:iseg*M+1, :], istat, apcstats
+
+	if isnothing(times)
+		#return the solution at chebyshev nodes
+		t_out = sol_time[1:iseg*M+1]
+		y_out = sol_y[1:iseg*M+1, :]
+		dy_out = sol_dy[1:iseg*M+1, :]
+		ddy_out = sol_ddy[1:iseg*M+1, :]
+	else
+		#interpolate is a vector of times to interpolate the solution to
+		t_out,y_out,dy_out,ddy_out = interpolate_solution(times, segment_times[1:iseg+1], y_coeffs[1:iseg,:,:], dy_coeffs[1:iseg,:,:], ddy_coeffs[1:iseg,:,:])
+	end
+
+	return t_out,y_out,dy_out,ddy_out, istat, apcstats
 end
 
-function integrate_ivp1(dy0, t0, tf, tol, ode, params; N = 20, verbose = false, dt = nothing, maxIters = 20, itol = 1e-15, exponent = nothing, analytic_guess = nothing)
+function integrate_ivp1(dy0, t0, tf, tol, ode, params; N = 20, verbose = false, dt = nothing, maxIters = 20, itol = 1e-15, exponent = nothing, analytic_guess = nothing, times=nothing)
 	dummy_y0 = 0 * dy0
 
 	#convert first order oder
@@ -382,6 +418,54 @@ function integrate_ivp1(dy0, t0, tf, tol, ode, params; N = 20, verbose = false, 
 		return ode(t, dy, params)
 	end
 
-	t, y, dy, ddy, istat, apcstats = integrate_ivp2(dummy_y0, dy0, t0, tf, tol, second_order_ode, params, N=N, verbose=verbose, dt=dt, maxIters=maxIters, itol=itol, exponent=exponent, analytic_guess=analytic_guess)
+	t, y, dy, ddy, istat, apcstats = integrate_ivp2(dummy_y0, dy0, t0, tf, tol, second_order_ode, params, N = N, verbose = verbose, dt = dt, maxIters = maxIters, itol = itol, exponent = exponent, analytic_guess = analytic_guess,times=times)
 	return t, dy, ddy, istat, apcstats
+end
+
+function interpolate_solution(times::AbstractArray, segment_times, y_coeffs, dy_coeffs, ddy_coeffs)
+	debug=false
+	"""This function takes a list of times and interpolates the solution to those times."""
+	num_segs = length(segment_times)-1 #total number of solution segments
+	N = size(y_coeffs, 2) - 1 #order of the y polynomial
+	dim = size(y_coeffs, 3) #dimension of the system
+	y_out = zeros(length(times), dim)
+	dy_out = zeros(length(times), dim)
+	ddy_out = zeros(length(times), dim)
+	t_out = zeros(length(times), 1)
+	#make a list of the times that fall within this segment
+
+	for i in 1:num_segs
+		ind=[]
+		if times[end] < segment_times[i]
+			#no need to check further
+			break
+		end
+		t0 = segment_times[i]
+		t1 = segment_times[i+1]
+		#calculate the time transformation for first guess
+		w1 = (2 * t0 + (t1-t0)) / 2#time average (value at tau=0) 
+		w2 = (t1-t0) / 2#time scaling factor	(tf-t0)/2
+		ind = findall((times .>= t0) .& (times .<= t1))
+
+		if debug
+			println("Segment: ", i, " Times: ", t0, " to ", t1, " Indices: ", ind)
+		end
+
+		if length(ind) > 0
+			#interpolate the solution to these times
+			taus = (times[ind].-w1) ./ w2
+			#print warning if any taus are outside of [-1,1]
+			if any(taus .< -1) || any(taus .> 1)
+				println("Warning: Some taus are outside of [-1,1]")
+			end
+			Ty = interpolate(taus, N)
+			Tdy = Ty[:, 1:end-1]
+			Tddy = Tdy[:, 1:end-1]
+			y_out[ind,:] = Ty * y_coeffs[i, :, :]
+			dy_out[ind,:] = Tdy * dy_coeffs[i, :, :]
+			ddy_out[ind,:] = Tddy * ddy_coeffs[i, :, :]
+			t_out[ind] = times[ind]
+		end
+	end
+	return times, y_out, dy_out, ddy_out
 end
